@@ -23,18 +23,14 @@ jobs:
   plan:
     name: terraform plan
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target_env: [production] # 👈 Define your environment name here once
-    environment: ${{ matrix.target_env }}
+    environment: production
     env:
       # DigitalOcean provider
       DIGITALOCEAN_TOKEN: ${{ secrets.DO_TOKEN }}
       # Cloudflare R2 state backend (S3-compatible)
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      # Account ID may live in either environment secrets or variables
-      AWS_ENDPOINT_URL_S3: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      AWS_ENDPOINT_URL_S3: https://${{ vars.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
     steps:
       - name: Checkout
         uses: actions/checkout@v4
