@@ -2,7 +2,7 @@ locals {
   # Defaults applied to every droplet; override per-droplet below.
   droplet_defaults = {
     region = "sgp1"
-    size   = "s-1vcpu-1gb"
+    size   = "s-1vcpu-2gb-amd"
     image  = "ubuntu-24-04-x64"
   }
 
