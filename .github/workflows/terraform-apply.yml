@@ -1,0 +1,51 @@
+name: Terraform Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-apply.yml"
+
+permissions:
+  contents: read
+
+# Never run two applies at once; queue instead of cancelling a running apply
+concurrency:
+  group: terraform-apply
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  apply:
+    name: terraform apply
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      # DigitalOcean provider
+      DIGITALOCEAN_TOKEN: ${{ secrets.DO_TOKEN }}
+      # Cloudflare R2 state backend (S3-compatible)
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT_URL_S3: https://${{ vars.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.8"
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: terraform init -input=false -backend-config="bucket=${{ secrets.R2_BUCKET }}"
+
+      - name: Terraform apply
+        run: terraform apply -auto-approve -input=false -no-color
+
+      - name: Show outputs
+        run: terraform output -no-color
