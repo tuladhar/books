@@ -1,0 +1,183 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-plan.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: terraform-plan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  plan:
+    name: terraform plan
+    # Public repo: only run for PRs authored by the repo owner
+    if: github.event.pull_request.user.login == 'tuladhar'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      # DigitalOcean provider
+      DIGITALOCEAN_TOKEN: ${{ secrets.DO_TOKEN }}
+      # Cloudflare R2 state backend (S3-compatible)
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT_URL_S3: https://${{ vars.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.8"
+          terraform_wrapper: false
+
+      - name: R2 diagnostics (temporary)
+        env:
+          AWS_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set +e
+          echo "=== ListObjectsV2 ==="
+          aws s3api list-objects-v2 --bucket "$R2_BUCKET" --max-keys 10 --endpoint-url "$AWS_ENDPOINT_URL_S3" && echo "LIST: OK" || echo "LIST: FAILED"
+          echo "=== PutObject (r2-diag.txt) ==="
+          echo diag > /tmp/diag.txt
+          aws s3api put-object --bucket "$R2_BUCKET" --key r2-diag.txt --body /tmp/diag.txt --endpoint-url "$AWS_ENDPOINT_URL_S3" >/dev/null && echo "PUT: OK" || echo "PUT: FAILED"
+          echo "=== HeadObject on existing object ==="
+          aws s3api head-object --bucket "$R2_BUCKET" --key r2-diag.txt --endpoint-url "$AWS_ENDPOINT_URL_S3" >/dev/null && echo "HEAD existing: OK" || echo "HEAD existing: FAILED"
+          echo "=== HeadObject on missing terraform.tfstate ==="
+          aws s3api head-object --bucket "$R2_BUCKET" --key terraform.tfstate --endpoint-url "$AWS_ENDPOINT_URL_S3" && echo "HEAD tfstate: OK" || echo "HEAD tfstate: FAILED"
+          echo "=== Cleanup ==="
+          aws s3api delete-object --bucket "$R2_BUCKET" --key r2-diag.txt --endpoint-url "$AWS_ENDPOINT_URL_S3" && echo "DELETE: OK" || echo "DELETE: FAILED"
+          true
+
+      - name: Terraform init
+        run: terraform init -input=false -backend-config="bucket=${{ secrets.R2_BUCKET }}"
+
+      - name: Terraform plan
+        id: plan
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          terraform plan -no-color -input=false -out=tfplan 2>&1 | tee plan.txt
+
+      - name: Build plan comment
+        if: always() && steps.plan.outcome != 'skipped'
+        run: |
+          {
+            echo '<!-- terraform-plan-comment -->'
+            echo '## Terraform Plan'
+            echo ''
+          } > comment.md
+
+          if [ "${{ steps.plan.outcome }}" = "success" ]; then
+            terraform show -json tfplan > plan.json
+
+            ADD=$(jq '[.resource_changes[]? | select(.change.actions | index("create"))] | length' plan.json)
+            CHANGE=$(jq '[.resource_changes[]? | select(.change.actions | index("update"))] | length' plan.json)
+            DESTROY=$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' plan.json)
+
+            {
+              echo '**Status:** :white_check_mark: `success`'
+              echo ''
+              echo '| :green_circle: Add | :yellow_circle: Change | :red_circle: Destroy |'
+              echo '| :---: | :---: | :---: |'
+              echo "| $ADD | $CHANGE | $DESTROY |"
+              echo ''
+            } >> comment.md
+
+            if [ "$((ADD + CHANGE + DESTROY))" -gt 0 ]; then
+              {
+                echo '### Resource changes'
+                echo ''
+                echo '| Resource | Type | Action |'
+                echo '| --- | --- | --- |'
+                jq -r '
+                  .resource_changes[]?
+                  | select(.change.actions != ["no-op"] and .change.actions != ["read"])
+                  | .change.actions as $a
+                  | (if $a == ["create"] then ":green_circle: create"
+                     elif $a == ["update"] then ":yellow_circle: update"
+                     elif $a == ["delete"] then ":red_circle: destroy"
+                     elif ($a | index("delete")) and ($a | index("create")) then ":recycle: replace"
+                     else ($a | join(", ")) end) as $action
+                  | "| `\(.address)` | `\(.type)` | \($action) |"
+                ' plan.json
+                echo ''
+              } >> comment.md
+            else
+              echo '_No changes. Infrastructure matches the configuration._' >> comment.md
+              echo '' >> comment.md
+            fi
+          else
+            {
+              echo '**Status:** :x: `failed`'
+              echo ''
+            } >> comment.md
+          fi
+
+          {
+            echo '<details><summary>Full plan output</summary>'
+            echo ''
+            echo '```'
+            head -c 55000 plan.txt
+            if [ "$(wc -c < plan.txt)" -gt 55000 ]; then
+              echo ''
+              echo '... (output truncated, see workflow logs for full plan)'
+            fi
+            echo '```'
+            echo ''
+            echo '</details>'
+            echo ''
+            echo "_Commit: \`${{ github.event.pull_request.head.sha }}\` · [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})_"
+          } >> comment.md
+
+      - name: Post plan comment
+        if: always() && steps.plan.outcome != 'skipped'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('terraform/comment.md', 'utf8');
+            const marker = '<!-- terraform-plan-comment -->';
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail if plan failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1

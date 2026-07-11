@@ -1,0 +1,17 @@
+# Local .terraform directories and lock/state artifacts
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+
+# Local variable/backend files that may contain secrets
+*.tfvars
+*.tfvars.json
+backend.hcl
+
+# CLI config
+.terraformrc
+terraform.rc
