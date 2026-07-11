@@ -6,6 +6,10 @@ terraform {
       source  = "digitalocean/digitalocean"
       version = "~> 2.95"
     }
+    cloudflare = {
+      source  = "cloudflare/cloudflare"
+      version = "~> 5.22"
+    }
   }
 
   # Cloudflare R2 as state backend (S3-compatible).
