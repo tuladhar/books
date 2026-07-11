@@ -14,7 +14,7 @@ terraform {
   #   - Local: terraform init -backend-config=backend.hcl (see backend.hcl.example)
   # R2 credentials come from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars.
   backend "s3" {
-    key                         = "digitalocean-vm/terraform.tfstate"
+    key                         = "terraform-state/digitalocean-vm/terraform.tfstate"
     region                      = "auto"
     use_lockfile                = true
     use_path_style              = true
