@@ -46,27 +46,6 @@ jobs:
           terraform_version: "1.14.8"
           terraform_wrapper: false
 
-      - name: R2 diagnostics (temporary)
-        env:
-          AWS_REGION: auto
-          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: |
-          set +e
-          echo "=== ListObjectsV2 ==="
-          aws s3api list-objects-v2 --bucket "$R2_BUCKET" --max-keys 10 --endpoint-url "$AWS_ENDPOINT_URL_S3" && echo "LIST: OK" || echo "LIST: FAILED"
-          echo "=== PutObject (r2-diag.txt) ==="
-          echo diag > /tmp/diag.txt
-          aws s3api put-object --bucket "$R2_BUCKET" --key r2-diag.txt --body /tmp/diag.txt --endpoint-url "$AWS_ENDPOINT_URL_S3" >/dev/null && echo "PUT: OK" || echo "PUT: FAILED"
-          echo "=== HeadObject on existing object ==="
-          aws s3api head-object --bucket "$R2_BUCKET" --key r2-diag.txt --endpoint-url "$AWS_ENDPOINT_URL_S3" >/dev/null && echo "HEAD existing: OK" || echo "HEAD existing: FAILED"
-          echo "=== HeadObject on missing terraform.tfstate ==="
-          aws s3api head-object --bucket "$R2_BUCKET" --key terraform.tfstate --endpoint-url "$AWS_ENDPOINT_URL_S3" && echo "HEAD tfstate: OK" || echo "HEAD tfstate: FAILED"
-          echo "=== Cleanup ==="
-          aws s3api delete-object --bucket "$R2_BUCKET" --key r2-diag.txt --endpoint-url "$AWS_ENDPOINT_URL_S3" && echo "DELETE: OK" || echo "DELETE: FAILED"
-          true
-
       - name: Terraform init
         run: terraform init -input=false -backend-config="bucket=${{ secrets.R2_BUCKET }}"
 
