@@ -8,9 +8,10 @@ Provisions a DigitalOcean droplet, with Terraform state stored in Cloudflare R2
 | File | Purpose |
 | --- | --- |
 | `versions.tf` | Terraform/provider versions + R2 backend config |
-| `main.tf` | Provider + droplet resource |
-| `variables.tf` | Droplet name/region/size/image/tags |
-| `outputs.tf` | Droplet ID, IPv4/IPv6, status |
+| `main.tf` | Provider + droplet resource (`for_each` over `local.droplets`) |
+| `locals.tf` | Droplet map + shared defaults — add a VM here |
+| `variables.tf` | DigitalOcean token variable |
+| `outputs.tf` | Droplet IDs, IPv4 addresses, statuses (maps) |
 | `backend.hcl.example` | Template for local backend config |
 
 ## Local usage

@@ -3,11 +3,12 @@ provider "digitalocean" {
 }
 
 resource "digitalocean_droplet" "vm" {
-  name       = var.droplet_name
-  region     = var.droplet_region
-  size       = var.droplet_size
-  image      = var.droplet_image
-  tags       = var.droplet_tags
+  for_each = local.droplets_merged
+
+  name       = each.value.name
+  region     = each.value.region
+  size       = each.value.size
+  image      = each.value.image
   monitoring = true
-  ipv6       = true
+  ipv6       = false
 }
