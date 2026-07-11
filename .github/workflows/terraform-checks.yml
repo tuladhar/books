@@ -17,6 +17,8 @@ defaults:
 jobs:
   checks:
     name: fmt, validate & lint
+    # Public repo: only run for PRs authored by the repo owner
+    if: github.event.pull_request.user.login == 'tuladhar'
     runs-on: ubuntu-latest
     environment: production
     steps:
