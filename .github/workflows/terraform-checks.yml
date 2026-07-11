@@ -18,6 +18,10 @@ jobs:
   checks:
     name: fmt, validate & lint
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target_env: [production] # 👈 Define your environment name here once
+    environment: ${{ matrix.target_env }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
